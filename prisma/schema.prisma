@@ -1,0 +1,647 @@
+// Zeno Finance Platform - Database Schema
+// MVP: Users, Accounts, Transactions, Goals, Actions, Insights
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// USER & PROFILE
+// ============================================
+
+model User {
+  id        String   @id @default(cuid())
+  clerkId   String   @unique // Clerk user ID
+  email     String   @unique
+  firstName String?
+  lastName  String?
+  avatarUrl String?
+
+  // Onboarding status
+  onboardingCompleted Boolean  @default(false)
+  onboardingStep      Int      @default(0)
+
+  // User preferences
+  preferences UserPreferences?
+
+  // Financial data
+  accounts     Account[]
+  transactions Transaction[]
+  debts        Debt[]
+  bills        Bill[]
+  goals        Goal[]
+
+  // Zeno Brain outputs
+  insights     Insight[]
+  actions      Action[]
+
+  // World Layer progress
+  worldProgress WorldProgress?
+
+  // Subscription
+  subscription Subscription?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([clerkId])
+  @@index([email])
+}
+
+model UserPreferences {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Onboarding answers
+  incomeFrequency   IncomeFrequency @default(MONTHLY)
+  primaryGoal       PrimaryGoal     @default(BUILD_SAVINGS)
+  mainStressPoint   StressPoint     @default(UNCLEAR_PICTURE)
+  monthlyIncome     Float?
+
+  // Display preferences
+  theme             Theme    @default(SYSTEM)
+  currency          String   @default("USD")
+  showWorldLayer    Boolean  @default(true)
+
+  // Notification preferences
+  emailDigest       Boolean  @default(true)
+  actionReminders   Boolean  @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum IncomeFrequency {
+  WEEKLY
+  BIWEEKLY
+  SEMIMONTHLY
+  MONTHLY
+  VARIABLE
+}
+
+enum PrimaryGoal {
+  BUILD_SAVINGS
+  PAY_OFF_DEBT
+  TRACK_SPENDING
+  INVEST_MORE
+  REDUCE_BILLS
+}
+
+enum StressPoint {
+  UNCLEAR_PICTURE
+  TOO_MUCH_DEBT
+  NOT_SAVING_ENOUGH
+  BILLS_OVERWHELMING
+  NO_EMERGENCY_FUND
+  DISORGANIZED
+}
+
+enum Theme {
+  LIGHT
+  DARK
+  SYSTEM
+}
+
+// ============================================
+// FINANCIAL ACCOUNTS
+// ============================================
+
+model Account {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Account info
+  name           String
+  type           AccountType
+  subtype        String?        // e.g., "checking", "savings", "credit card"
+  institution    String?        // Bank name
+
+  // Balance info
+  currentBalance Float
+  availableBalance Float?
+  creditLimit    Float?         // For credit accounts
+
+  // Plaid integration (future)
+  plaidAccountId String?        @unique
+  plaidItemId    String?
+  isConnected    Boolean        @default(false) // true if linked via Plaid
+  lastSynced     DateTime?
+
+  // Manual tracking
+  isManual       Boolean        @default(true)
+  includeInNet   Boolean        @default(true)  // Include in net worth calc
+
+  transactions   Transaction[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([type])
+}
+
+enum AccountType {
+  CHECKING
+  SAVINGS
+  CREDIT_CARD
+  INVESTMENT
+  LOAN
+  OTHER
+}
+
+// ============================================
+// TRANSACTIONS
+// ============================================
+
+model Transaction {
+  id        String @id @default(cuid())
+  userId    String
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accountId String
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  // Transaction details
+  amount      Float           // Positive = income, Negative = expense
+  description String
+  merchantName String?
+
+  // Categorization
+  category    TransactionCategory @default(UNCATEGORIZED)
+  customCategory String?
+
+  // Date info
+  date        DateTime
+
+  // Plaid fields (future)
+  plaidTransactionId String? @unique
+  pending     Boolean  @default(false)
+
+  // Manual tracking
+  isManual    Boolean  @default(true)
+  isRecurring Boolean  @default(false)
+
+  // Linked entities
+  billId      String?
+  bill        Bill?    @relation(fields: [billId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([accountId])
+  @@index([date])
+  @@index([category])
+}
+
+enum TransactionCategory {
+  // Income
+  INCOME_SALARY
+  INCOME_FREELANCE
+  INCOME_INVESTMENT
+  INCOME_OTHER
+
+  // Housing
+  HOUSING_RENT
+  HOUSING_MORTGAGE
+  HOUSING_UTILITIES
+  HOUSING_MAINTENANCE
+
+  // Transportation
+  TRANSPORT_GAS
+  TRANSPORT_PUBLIC
+  TRANSPORT_RIDESHARE
+  TRANSPORT_MAINTENANCE
+  TRANSPORT_INSURANCE
+
+  // Food
+  FOOD_GROCERIES
+  FOOD_DINING
+  FOOD_DELIVERY
+
+  // Health
+  HEALTH_INSURANCE
+  HEALTH_MEDICAL
+  HEALTH_FITNESS
+
+  // Entertainment
+  ENTERTAINMENT_STREAMING
+  ENTERTAINMENT_GAMES
+  ENTERTAINMENT_EVENTS
+  ENTERTAINMENT_OTHER
+
+  // Shopping
+  SHOPPING_CLOTHING
+  SHOPPING_ELECTRONICS
+  SHOPPING_HOME
+  SHOPPING_OTHER
+
+  // Financial
+  FINANCIAL_TRANSFER
+  FINANCIAL_FEES
+  FINANCIAL_INVESTMENT
+
+  // Subscriptions
+  SUBSCRIPTION
+
+  // Debt payments
+  DEBT_PAYMENT
+
+  // Savings
+  SAVINGS_TRANSFER
+
+  // Other
+  UNCATEGORIZED
+  OTHER
+}
+
+// ============================================
+// DEBTS
+// ============================================
+
+model Debt {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Debt info
+  name           String
+  type           DebtType
+  lender         String?
+
+  // Balance info
+  originalBalance Float
+  currentBalance  Float
+  interestRate    Float          // APR as decimal (e.g., 0.15 = 15%)
+  minimumPayment  Float
+
+  // Payment schedule
+  dueDay         Int?            // Day of month (1-31)
+
+  // Payoff tracking
+  targetPayoffDate DateTime?
+  isPaidOff       Boolean  @default(false)
+  paidOffDate     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([type])
+}
+
+enum DebtType {
+  CREDIT_CARD
+  STUDENT_LOAN
+  PERSONAL_LOAN
+  AUTO_LOAN
+  MORTGAGE
+  MEDICAL
+  OTHER
+}
+
+// ============================================
+// BILLS & SUBSCRIPTIONS
+// ============================================
+
+model Bill {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Bill info
+  name        String
+  category    BillCategory
+  amount      Float
+
+  // Schedule
+  frequency   BillFrequency @default(MONTHLY)
+  dueDay      Int?          // Day of month (1-31)
+  nextDueDate DateTime?
+
+  // Status
+  isActive    Boolean  @default(true)
+  isPaused    Boolean  @default(false)
+
+  // Subscription-specific
+  isSubscription Boolean  @default(false)
+  canCancel      Boolean  @default(true)
+
+  // Auto-detection (future)
+  isAutoDetected Boolean  @default(false)
+  confidence     Float?   // Detection confidence 0-1
+
+  transactions   Transaction[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([category])
+  @@index([nextDueDate])
+}
+
+enum BillCategory {
+  HOUSING
+  UTILITIES
+  INSURANCE
+  PHONE
+  INTERNET
+  STREAMING
+  SOFTWARE
+  MEMBERSHIP
+  LOAN_PAYMENT
+  OTHER
+}
+
+enum BillFrequency {
+  WEEKLY
+  BIWEEKLY
+  MONTHLY
+  QUARTERLY
+  YEARLY
+}
+
+// ============================================
+// GOALS
+// ============================================
+
+model Goal {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Goal info
+  name        String
+  type        GoalType
+  description String?
+
+  // Target
+  targetAmount Float
+  currentAmount Float  @default(0)
+
+  // Timeline
+  targetDate   DateTime?
+
+  // Status
+  status       GoalStatus @default(ACTIVE)
+  completedAt  DateTime?
+
+  // Priority (1 = highest)
+  priority     Int        @default(5)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([type])
+  @@index([status])
+}
+
+enum GoalType {
+  EMERGENCY_FUND
+  DEBT_PAYOFF
+  SAVINGS
+  INVESTMENT
+  PURCHASE
+  RETIREMENT
+  EDUCATION
+  TRAVEL
+  OTHER
+}
+
+enum GoalStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+  ABANDONED
+}
+
+// ============================================
+// ZENO BRAIN - INSIGHTS & ACTIONS
+// ============================================
+
+model Insight {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Insight content
+  summary     String    @db.Text  // "What's going on" summary
+  watchOuts   String[]            // 1-2 warning items
+  weekPlan    Json?               // 7-day mini plan
+
+  // Metadata
+  dataSnapshot Json               // Snapshot of financial data at generation time
+  confidence   Float              // AI confidence 0-1
+
+  // Related actions
+  actions      Action[]
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model Action {
+  id        String @id @default(cuid())
+  userId    String
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  insightId String?
+  insight   Insight? @relation(fields: [insightId], references: [id], onDelete: SetNull)
+
+  // Action content
+  title          String
+  description    String    @db.Text
+  whyItMatters   String?   @db.Text
+
+  // Metrics
+  estimatedImpact  ActionImpact  @default(MEDIUM)
+  difficulty       ActionDifficulty @default(MEDIUM)
+  timeToComplete   String?       // e.g., "5 minutes", "1 hour"
+
+  // Status
+  status      ActionStatus @default(PENDING)
+  completedAt DateTime?
+  dismissedAt DateTime?
+
+  // Priority (1 = highest)
+  priority    Int          @default(1)
+
+  // Expiration (some actions are time-sensitive)
+  expiresAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([priority])
+}
+
+enum ActionImpact {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum ActionDifficulty {
+  EASY
+  MEDIUM
+  HARD
+}
+
+enum ActionStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  DISMISSED
+  EXPIRED
+}
+
+// ============================================
+// WORLD LAYER - PROGRESS VISUALIZATION
+// ============================================
+
+model WorldProgress {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Overall level/status
+  level         Int      @default(1)
+  totalXp       Int      @default(0)
+  currentXp     Int      @default(0)
+  xpToNextLevel Int      @default(100)
+
+  // Module statuses (JSON for flexibility)
+  modules       Json     @default("{}")
+  // Example structure:
+  // {
+  //   "stability": { "level": 2, "status": "upgrading" },
+  //   "efficiency": { "level": 1, "status": "online" },
+  //   "capacity": { "level": 1, "status": "initializing" },
+  //   "security": { "level": 0, "status": "offline" }
+  // }
+
+  // Milestones achieved
+  milestones    WorldMilestone[]
+
+  // Stats
+  streakDays    Int      @default(0)
+  longestStreak Int      @default(0)
+  actionsCompleted Int   @default(0)
+  goalsCompleted   Int   @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model WorldMilestone {
+  id              String @id @default(cuid())
+  worldProgressId String
+  worldProgress   WorldProgress @relation(fields: [worldProgressId], references: [id], onDelete: Cascade)
+
+  // Milestone info
+  type        MilestoneType
+  name        String
+  description String?
+
+  // Achievement
+  achievedAt  DateTime @default(now())
+
+  // Metadata
+  metadata    Json?    // Additional context
+
+  @@index([worldProgressId])
+  @@index([type])
+}
+
+enum MilestoneType {
+  // Emergency Fund
+  EMERGENCY_STARTER     // $500
+  EMERGENCY_BASIC       // $1,000
+  EMERGENCY_MONTH       // 1 month expenses
+  EMERGENCY_QUARTER     // 3 months expenses
+  EMERGENCY_FULL        // 6 months expenses
+
+  // Debt
+  DEBT_FIRST_PAYOFF
+  DEBT_HALF_PAID
+  DEBT_FREE
+
+  // Savings
+  SAVINGS_FIRST_GOAL
+  SAVINGS_CONSISTENT    // 3 months in a row
+  SAVINGS_RATE_10       // 10% savings rate
+  SAVINGS_RATE_20       // 20% savings rate
+
+  // Bills
+  BILLS_ORGANIZED
+  BILLS_REDUCED
+  SUBSCRIPTIONS_AUDIT
+
+  // Streaks
+  STREAK_7_DAYS
+  STREAK_30_DAYS
+  STREAK_90_DAYS
+
+  // General
+  FIRST_SNAPSHOT
+  FIRST_ACTION_COMPLETE
+  ONBOARDING_COMPLETE
+
+  // Special
+  FINANCIAL_CLARITY     // All data entered
+  MOMENTUM_BUILDER      // 5 actions in a week
+}
+
+// ============================================
+// SUBSCRIPTION & BILLING
+// ============================================
+
+model Subscription {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Stripe info
+  stripeCustomerId     String?  @unique
+  stripeSubscriptionId String?  @unique
+  stripePriceId        String?
+
+  // Plan info
+  plan        SubscriptionPlan @default(FREE)
+  status      SubscriptionStatus @default(ACTIVE)
+
+  // Billing period
+  currentPeriodStart DateTime?
+  currentPeriodEnd   DateTime?
+  cancelAtPeriodEnd  Boolean  @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum SubscriptionPlan {
+  FREE
+  STARTER    // Basic features
+  PRO        // Full features + AI insights
+  TEAM       // For couples/families (future)
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  INCOMPLETE
+  TRIALING
+}
