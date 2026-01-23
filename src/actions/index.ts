@@ -230,7 +230,7 @@ export async function markBillPaid(billId: string) {
     }
 
     // Calculate next due date based on frequency
-    let nextDueDate = bill.nextDueDate ? new Date(bill.nextDueDate) : new Date()
+    const nextDueDate = bill.nextDueDate ? new Date(bill.nextDueDate) : new Date()
 
     switch (bill.frequency) {
       case 'WEEKLY':
